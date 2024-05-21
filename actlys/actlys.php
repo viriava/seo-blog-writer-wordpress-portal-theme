@@ -2,10 +2,6 @@
 
 class ActlysLicenses {
 
-    const INNER_API_KEY = 'anxc321lksajd8923dqSADAPOSDJ1alskdjklasd';
-    // const API_URL = 'http://localhost.loc/bloger/wp-json/v1/inner/users/';
-    const API_URL = 'https://seoblogwriterserver.sparkignitepro.com/wp-json/v1/inner/users/';
-
     public function __construct() {
         add_shortcode('actlys_license', array($this, 'render_shortcode'));
 		add_action( 'wp_enqueue_scripts', array($this, "frontend_js"));
