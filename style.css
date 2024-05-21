@@ -1,0 +1,16 @@
+/*
+ Theme Name:   Kadence Child
+ Theme URI:    https://actlys.com
+ Description:  Kadence Child Theme
+ Author:       Your Name
+ Author URI:   https://actlys.com
+ Template:     kadence
+ Version:      1.0.0
+ Text Domain:  kadence-child
+*/
+
+/* Add your custom styles below this line */
+.kt-inside-inner-col .arm-form-container .arm-default-form:not(.arm_admin_member_form){
+    max-width: Min(100%, 550px) !important;
+    width: 100% !important;
+}
