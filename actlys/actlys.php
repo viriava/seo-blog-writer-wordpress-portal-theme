@@ -204,9 +204,8 @@ class ActlysLicenses {
 
     public function render_shortcode() {
 
-        // $license_data = $this->get_license_status();
-        // $is_disabled = $license_data['activated'] == 0 && !$license_data['error'];
-        $is_disabled = false;
+        $license_data = $this->get_license_status();
+        $is_disabled = $license_data['activated'] == 0 && !$license_data['error'];
         $user_id = get_current_user_id();
         $api_key = get_user_meta($user_id, 'actlys_api_key', true);
 
