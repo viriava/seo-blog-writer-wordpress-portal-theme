@@ -81,7 +81,7 @@ class ActlysLicenses {
 
     }
 
-    private function generate_license_from_api( int $user_id, string $email ) {
+    public static function generate_license_from_api( int $user_id, string $email ) {
 
         $toReturn = array(
             'error' => false,
@@ -92,8 +92,11 @@ class ActlysLicenses {
         $url = SBW_API_URL . '?api_key_inner=' . SBW_INNER_API_KEY;
         $json_data = array(
             "email" => $email,
-            "activated" => 1
+            "activated" => 1,
+            "package_id" => 1,
+            "domain" => ''
         );
+
         $args = array(
             'body'        => json_encode( $json_data ),
             'method'      => 'POST',
@@ -253,3 +256,288 @@ class ActlysLicenses {
 }
 
 new ActlysLicenses();
+
+class ActlysUserRestAPI {
+
+    // Constructor to initialize the REST API route registration
+    public function __construct() {
+        add_action('rest_api_init', array($this, 'register_routes'));
+    }
+
+    // Register custom REST API routes
+    public function register_routes() {
+        // Register a POST route: /wp-json/scwriter/v1/connect
+        register_rest_route('scwriter/v1', '/connect/', array(
+            'methods' => 'POST',
+            'callback' => array($this, 'connect_endpoint'),
+            'permission_callback' => array($this, 'verify_api_key'),
+        ));
+        // Register a POST route: /wp-json/scwriter/v1/connect
+        register_rest_route('scwriter/v1', '/add_domain/', array(
+            'methods' => 'POST',
+            'callback' => array($this, 'add_domain_endpoint'),
+            'permission_callback' => array($this, 'verify_api_key'),
+        ));
+    }
+
+    // Verify API key
+    public function verify_api_key($request) {
+        // Get API key from URL parameter
+        $api_key = $request->get_param('api_key');
+
+        // Check if the provided API key matches the predefined one
+        if ($api_key && $api_key === SBW_CONNECTION_API_KEY) {
+            return true; // API key is valid, allow the request
+        }
+
+        $error = new \WP_Error( 'actlys_rest_api_validation', 'Unauthorized: Invalid Connection API Key' );
+        wp_send_json_error( $error, 503 );
+
+        return false;
+    }
+
+    // Callback for the POST /connect endpoint
+    public function connect_endpoint($request) {
+
+        $toReturn = array(
+            'success' => true,
+            'data' => [
+                'message' => ''
+            ]
+        );
+
+        $params = $request->get_json_params();
+        
+        $email = isset($params['email']) ? sanitize_text_field($params['email']) : '';
+        $domain = isset($params['domain']) ? sanitize_text_field($params['domain']) : '';
+
+        if ( $email && $domain ) {
+
+            $user = get_user_by('email', $email);
+
+            if ( $user ) {
+                $toReturn['success'] = false;
+                $link = '<a href="'.get_home_url().'" target="_blank">here</a>';
+                $toReturn['data']['message'] = 'You already have an SCwriter account. Please log in '.$link.' to copy your API Key.';
+            } else {
+
+                $user_id = $this->create_user( $email );
+
+                if ( !$user_id ) {
+                    $toReturn['success'] = false;
+                    $toReturn['data']['message'] = 'We\'re unable to connect to your website at the moment due to an issue with creating user. Please try again later.';
+                } else {
+                    $update_domain = $this->update_user_domain( $email, $domain );
+                    $api_key = get_user_meta($user_id, 'actlys_api_key', true);
+
+                    if ( $api_key ) {
+                        $toReturn['success'] = true;
+                        $toReturn['data']['api_key'] = $api_key;
+                    }
+                }
+
+            }
+
+        } else {
+
+            $toReturn['success'] = false;
+            $toReturn['data']['message'] = 'We\'re unable to connect to your website at the moment due to an issue with the incoming parameters. Please try again later.';
+
+        }
+
+        return new WP_REST_Response( $toReturn, 200 );
+
+    }
+
+    // Callback for the POST /add_domain_endpoint endpoint
+    public function add_domain_endpoint($request) {
+
+        $toReturn = array(
+            'success' => true,
+        );
+
+        $params = $request->get_json_params();
+        
+        $email = isset($params['email']) ? sanitize_text_field($params['email']) : '';
+        $domain = isset($params['domain']) ? sanitize_text_field($params['domain']) : '';
+
+        if ( $email && $domain ) {
+
+            $user = get_user_by('email', $email);
+
+            if ( $user ) {
+                
+                $update_domain = $this->update_user_domain( $email, $domain );
+
+                if ( $update_domain['error'] ) {
+
+                    $toReturn['success'] = false;
+                    $toReturn['data']['message'] = $update_domain['error_message'];
+
+                }
+
+            } else {
+
+                $toReturn['success'] = false;
+                $toReturn['data']['message'] = 'No user found with the provided email address.';
+                
+            }
+
+        } else {
+
+            $toReturn['success'] = false;
+            $toReturn['data']['message'] = 'We\'re unable to connect to your website at the moment due to an issue with the incoming parameters. Please try again later.';
+
+        }
+
+        return new WP_REST_Response( $toReturn, 200 );
+
+    }
+
+    private function update_user_domain( string $email, string $domain ) : array {
+
+        $toReturn = array(
+            'error' => false,
+            'error_message' => ''
+        );
+
+        $user = get_user_by('email', $email);
+
+        if ( is_wp_error($user) ) {
+            $toReturn['error'] = true;
+            $toReturn['error_message'] = 'User with the provided email does not exist.';
+        } else {
+            $actlys_client_id = get_user_meta($user->ID, 'actlys_client_id', true);
+
+            $url = SBW_API_URL . '?api_key_inner=' . SBW_INNER_API_KEY;
+            $json_data = array(
+                "client_id" => $actlys_client_id,
+            );
+            $args = array(
+                'body'        => $json_data,
+                'method'      => 'GET',
+                'headers'     => array(
+                    'Content-Type' => 'application/json'
+                ),
+            );
+
+            $response = wp_remote_request( $url, $args );
+
+            if (is_wp_error($response)) {
+                $error_message = $response->get_error_message();
+                $toReturn['error'] = true;
+                $toReturn['error_message'] = $error_message;
+            } else {
+                $response_body = json_decode(wp_remote_retrieve_body($response), true);
+
+                if ( !$response_body['success'] ){
+                    $toReturn['error'] = true;
+                    $error_message = 'Oops! Something went wrong with getting client\'s data.';
+                    if ( isset($response_body['data'][0]['message']) ) {
+                        $error_message = $response_body['data'][0]['message'];
+                    }
+                    if ( isset($response_body['data'][0]['code']) && $response_body['data'][0]['code'] == 'server_under_maintenance' ) {
+                        $error_message = "We're currently sprucing things up on our server to make your experience even better. Please check back soon! Thank you for your patience.";
+                    }
+                    $toReturn['error_message'] = $error_message;
+                } else {
+
+                    $need_update = false;
+                    $update_data = array(
+                        'client_id'     => $actlys_client_id,
+                        'email'         => $response_body['data']['email'],
+                        'domains'       => '',
+                        "package_id"    => $response_body['data']['package_id'],
+                        "activated"     => $response_body['data']['activated'],
+                    );
+
+                    $domains = $response_body['data']['domains'];
+                    $domains_array = array();
+                    if ( $domains !== 'null' && !is_null($domains) ) {
+                        $domains_array = json_decode( $domains, true );
+                    }
+                    
+                    if ( !in_array( $domain, $domains_array ) ) {
+                        $domains_array[] = $domain;
+                        $need_update = true;
+                    }
+                    $update_data['domains'] = $domains_array;
+                    
+                    if ( $need_update ) {
+
+                        $update_args = array(
+                            'body'        => wp_json_encode( $update_data, JSON_UNESCAPED_UNICODE ),
+                            'method'      => 'PUT',
+                            'headers'     => array(
+                                'Content-Type' => 'application/json'
+                            ),
+                        );
+                        $update_response = wp_remote_request( $url, $update_args );
+
+                        if (is_wp_error($update_response)) {
+                            $error_message = $update_response->get_error_message();
+                            $toReturn['error'] = true;
+                            $toReturn['error_message'] = $error_message;
+                        } else {
+                            $update_response_body = json_decode(wp_remote_retrieve_body($update_response), true);
+                            
+                            if ( !$update_response_body['success'] ){
+                                
+                                $toReturn['error'] = true;
+                                $error_message = 'Oops! Something went wrong with getting client\'s data.';
+                                if ( isset($update_response_body['data'][0]['message']) ) {
+                                    $error_message = $update_response_body['data'][0]['message'];
+                                }
+                                if ( isset($update_response_body['data'][0]['code']) && $update_response_body['data'][0]['code'] == 'server_under_maintenance' ) {
+                                    $error_message = "We're currently sprucing things up on our server to make your experience even better. Please check back soon! Thank you for your patience.";
+                                }
+                                $toReturn['error_message'] = $error_message;
+                            }
+                        }
+
+                    }
+
+                }
+            }
+
+        }
+
+        return $toReturn;
+
+    }
+
+    private function create_user( string $email ) : int|bool {
+
+        $password = wp_generate_password(12, true);
+
+        $arm_member_forms = new ARM_member_forms_Lite();
+        $user_data = array(
+            'user_login' => $email,
+            'user_email' => $email,
+            'user_pass' => $password,
+            'user_nicename' => '',
+            'user_url' => '',
+            'display_name' => '',
+            'first_name' => '',
+            'last_name' => '',
+            'subscription_plan' => 1,
+        );
+
+        $user_id = $arm_member_forms->arm_register_new_member($user_data);
+        
+        if ( !is_wp_error( $user_id ) ) {
+
+            update_user_meta( $user_id, 'arm_user_future_plan_ids', [] );
+            update_user_meta( $user_id, 'arm_user_suspended_plan_ids', [] );
+            update_user_meta( $user_id, 'arm_user_plan_ids', [1] );
+            update_user_meta( $user_id, 'arm_user_last_plan', 1 );
+            
+            return $user_id;
+
+        } else {
+            return false;
+        }
+    }
+}
+
+new ActlysUserRestAPI();
