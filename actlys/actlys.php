@@ -14,7 +14,7 @@ class ActlysLicenses {
         $user_info = get_userdata( $user_id );
         $user_email = $user_info->user_email;
         self::generate_license_from_api( $user_id, $user_email );
-        
+
     }
 
     public function licences_reset() {
@@ -310,6 +310,8 @@ class ActlysUserRestAPI {
         
         $email = isset($params['email']) ? sanitize_text_field($params['email']) : '';
         $domain = isset($params['domain']) ? sanitize_text_field($params['domain']) : '';
+        $first_name = isset($params['first_name']) ? sanitize_text_field($params['first_name']) : '';
+        $last_name = isset($params['last_name']) ? sanitize_text_field($params['last_name']) : '';
 
         if ( $email && $domain ) {
 
@@ -321,7 +323,7 @@ class ActlysUserRestAPI {
                 $toReturn['data']['message'] = 'You already have an SCwriter account. Please log in '.$link.' to copy your API Key.';
             } else {
 
-                $user_id = $this->create_user( $email );
+                $user_id = $this->create_user( $email, $first_name, $last_name );
 
                 if ( !$user_id ) {
                     $toReturn['success'] = false;
@@ -506,7 +508,7 @@ class ActlysUserRestAPI {
 
     }
 
-    private function create_user( string $email ) : int|bool {
+    private function create_user( string $email, string $first_name, string $last_name ) : int|bool {
 
         $password = wp_generate_password(12, true);
 
@@ -517,15 +519,19 @@ class ActlysUserRestAPI {
             'user_pass' => $password,
             'user_nicename' => '',
             'user_url' => '',
-            'display_name' => '',
-            'first_name' => '',
-            'last_name' => '',
+            'display_name' => $first_name . ' ' . $last_name,
+            'first_name' => $first_name,
+            'last_name' => $last_name,
             'subscription_plan' => 1,
         );
-
-        $user_id = $arm_member_forms->arm_register_new_member($user_data);
         
+        $user_id = $arm_member_forms->arm_register_new_member($user_data);
+
         if ( !is_wp_error( $user_id ) ) {
+
+            update_user_meta($user_id, 'first_name', $user_data['first_name']);
+            update_user_meta($user_id, 'last_name', $user_data['last_name']);
+            update_user_meta($user_id, 'display_name', $user_data['display_name']);
 
             update_user_meta( $user_id, 'arm_user_future_plan_ids', [] );
             update_user_meta( $user_id, 'arm_user_suspended_plan_ids', [] );
