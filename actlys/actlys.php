@@ -510,6 +510,13 @@ class ActlysUserRestAPI {
 
     private function create_user( string $email, string $first_name, string $last_name ) : int|bool {
 
+        $arm_member_forms_file = WP_PLUGIN_DIR . '/armember-membership/core/classes/class.arm_member_forms.php';
+        if ( file_exists( $arm_member_forms_file ) ) {
+            require_once $arm_member_forms_file;
+        } else {
+            return false;
+        }
+        
         $password = wp_generate_password(12, true);
 
         $arm_member_forms = new ARM_member_forms_Lite();
